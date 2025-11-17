@@ -7,6 +7,7 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from 'wagmi';
+import { toast } from 'react-hot-toast'; // Import toast
 
 // --- CONFIGURATION (UNCHANGED) ---
 // Address of the deployed contract
@@ -32,11 +33,10 @@ export default function DailyCheckin() {
   const onBase = chainId === 8453 || chainId === 84532;
 
   // --- LOCAL STATE FOR CACHED DATA ---
-  // This state provides an instant UI feedback while fresh data is fetched.
   const [cachedState, setCachedState] = useState({ streak: 0, canCheckIn: null });
   const cacheKey = useMemo(() => (address ? `${CACHE_KEY_PREFIX}${address.toLowerCase()}` : null), [address]);
 
-  // Load initial state from cache when the component mounts or user changes
+  // Load initial state from cache
   useEffect(() => {
     if (cacheKey) {
       try {
@@ -77,7 +77,6 @@ export default function DailyCheckin() {
   const { isLoading: isMining, isSuccess } = useWaitForTransactionReceipt({ hash });
 
   // --- CACHE AND STATE SYNCHRONIZATION ---
-  // When fresh on-chain data arrives, update both the UI state and the local storage cache.
   useEffect(() => {
     if (userDataResult !== undefined && canDoResult !== undefined) {
       const newState = {
@@ -90,17 +89,24 @@ export default function DailyCheckin() {
       }
     }
   }, [userDataResult, canDoResult, cacheKey]);
-
-  // After a successful transaction, refetch the on-chain data to get the latest state.
+  
+  // --- TRANSACTION FEEDBACK ---
   useEffect(() => {
+    if (isPending) {
+      toast.loading('Check your wallet to confirm...', { id: 'checkin-tx' });
+    }
+    if (isMining) {
+      toast.loading('Transaction is confirming...', { id: 'checkin-tx' });
+    }
     if (isSuccess) {
-      // A small delay helps ensure the RPC node has indexed the new state.
+      toast.success('Check-in successful!', { id: 'checkin-tx' });
+      // After a successful transaction, refetch the on-chain data to get the latest state.
       setTimeout(() => {
         refetchUser();
         refetchCanDo();
       }, 1500);
     }
-  }, [isSuccess, refetchUser, refetchCanDo]);
+  }, [isPending, isMining, isSuccess, refetchUser, refetchCanDo]);
 
 
   // --- EVENT HANDLER ---
@@ -108,12 +114,17 @@ export default function DailyCheckin() {
     if (!contractConfig) return;
     writeContract(
       { ...contractConfig, functionName: 'checkIn', args: [''] },
-      { onError: (e) => console.error('Failed to send transaction:', e) }
+      { 
+        onError: (e) => {
+          // Provide a user-friendly error toast
+          toast.error(e.shortMessage || 'Transaction failed. Please try again.', { id: 'checkin-tx' });
+          console.error('Failed to send transaction:', e);
+        }
+      }
     );
   };
 
   // --- RENDER LOGIC ---
-  // Prioritize live data, but fall back to the cache for an instant UI.
   const streak = userDataResult !== undefined ? Number(userDataResult[1]) : cachedState.streak;
   const canDo = canDoResult !== undefined ? canDoResult : cachedState.canCheckIn;
 
@@ -126,7 +137,6 @@ export default function DailyCheckin() {
     : canDo === false ? 'Already checked-in today'
     : 'Daily check-in';
 
-  // Fallback for when the contract address is not configured
   if (!CHECKIN_ADDRESS) {
     return (
       <div style={{ marginTop: 10, fontSize: 14, opacity: 0.95 }}>
@@ -169,6 +179,91 @@ export default function DailyCheckin() {
           {canDo === false && <span> — come back tomorrow! ✅</span>}
         </div>
       )}
+    </div>
+  );
+}```
+
+---
+
+### File 3: `components/CreatorBuilderScore.js`
+
+This component is now enhanced to show a loading toast while fetching scores and will show either a success or a user-friendly error toast when the API call completes.
+
+```javascript
+// components/CreatorBuilderScore.js
+import { useEffect, useState } from 'react';
+import { useAccount } from 'wagmi';
+import { toast } from 'react-hot-toast'; // Import toast
+
+export default function CreatorBuilderScore() {
+  const { address, isConnected } = useAccount();
+  const [scores, setScores] = useState({ creator: null, builder: null });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      setScores({ creator: null, builder: null });
+      return;
+    }
+
+    const fetchScores = async () => {
+      setLoading(true);
+      const loadingToast = toast.loading('Fetching Builder Scores...'); // Show loading toast
+      try {
+        // Talent Protocol Production API Endpoint
+        const response = await fetch(`https://api.talentprotocol.com/api/v2/builder-score/${address}`);
+        if (!response.ok) {
+          throw new Error('Could not fetch scores. The wallet may not have a score yet.');
+        }
+        const data = await response.json();
+        setScores({
+          creator: data.score?.creator_score || 0,
+          builder: data.score?.score || 0,
+        });
+        toast.success('Scores loaded!', { id: loadingToast }); // Update to success
+      } catch (err) {
+        // Display a more helpful error message in a toast
+        toast.error(
+          <span>
+            Could not load scores. You may need to create a{' '}
+            <a href="https://app.talentprotocol.com/" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline', color: 'inherit' }}>
+              Talent Protocol
+            </a>{' '}
+            profile.
+          </span>,
+          { id: loadingToast }
+        );
+        setScores({ creator: 0, builder: 0 }); // Reset to 0 on error
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchScores();
+  }, [address, isConnected]);
+
+  if (!isConnected) {
+    return null; // Don't show anything if wallet is not connected
+  }
+  
+  // A simple loading text can still be useful for initial state
+  if (loading && scores.creator === null) {
+      return <div style={{ fontSize: 14, opacity: 0.8, marginTop: 8 }}>Loading scores...</div>;
+  }
+  
+  // Don't render until we have a score (or a failed state with score 0)
+  if (scores.creator === null && scores.builder === null) {
+    return null;
+  }
+
+  return (
+    <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', gap: '20px', fontSize: 14 }}>
+      <div>
+        Creator Score: <strong>{scores.creator}</strong>
+      </div>
+      <div>
+        Builder Score: <strong>{scores.builder}</strong>
+      </div>
     </div>
   );
 }
