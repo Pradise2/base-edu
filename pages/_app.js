@@ -2,6 +2,7 @@
 import Head from 'next/head'
 import { useEffect, useState } from 'react'
 import { AppKitProvider } from '../lib/appkit'
+import { Toaster } from 'react-hot-toast' // Import Toaster
 
 export default function App({ Component, pageProps }) {
   // Persisted theme: 'auto' | 'light' | 'dark'
@@ -33,6 +34,29 @@ export default function App({ Component, pageProps }) {
           <meta name="fc:miniapp" content="v1" />
           <title>Base Lite</title>
         </Head>
+
+        {/* Add the Toaster component for global notifications */}
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            // Define default options
+            duration: 5000,
+            style: {
+              background: 'var(--card-bg, rgba(255,255,255,0.10))',
+              color: 'var(--fg, #e6e8f0)',
+              border: '1px solid var(--card-border, rgba(255,255,255,0.22))',
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.20)',
+            },
+            // Default options for specific types
+            success: {
+              duration: 3000,
+            },
+            error: {
+              duration: 6000,
+            },
+          }}
+        />
 
         {/* Wrapped with AppKitProvider (Wagmi + Query) */}
         <Component {...pageProps} />
